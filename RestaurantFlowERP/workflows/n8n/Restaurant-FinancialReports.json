@@ -1,0 +1,338 @@
+{
+  "id": "FinancialReports-v1",
+  "meta": {
+    "instanceId": "restaurant-erp-financial-reports",
+    "templateCredsSetupCompleted": true
+  },
+  "name": "Daily Financial Reports & Analytics",
+  "tags": [
+    "restaurant",
+    "reports",
+    "finance",
+    "analytics"
+  ],
+  "nodes": [
+    {
+      "id": "daily-trigger",
+      "name": "Daily Report Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [
+        -340,
+        460
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "triggerAtHour": 22
+            }
+          ]
+        }
+      },
+      "typeVersion": 1.2
+    },
+    {
+      "id": "load-sales",
+      "name": "Load All Sales Data",
+      "type": "n8n-nodes-base.googleSheets",
+      "position": [
+        -120,
+        460
+      ],
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "1QZXX_gjNTTZ0vqPozNysjASQS3UcgwwWVpYvN7r-T_I"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": "Daily Sales"
+        },
+        "options": {},
+        "authentication": "serviceAccount"
+      },
+      "credentials": {
+        "googleApi": {
+          "id": "ScSS2KxGQULuPtdy",
+          "name": "Google Sheets- test"
+        }
+      },
+      "typeVersion": 4.6
+    },
+    {
+      "id": "load-tables",
+      "name": "Load Table Orders",
+      "type": "n8n-nodes-base.googleSheets",
+      "position": [
+        -120,
+        680
+      ],
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "1QZXX_gjNTTZ0vqPozNysjASQS3UcgwwWVpYvN7r-T_I"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": "Restaurant Tables"
+        },
+        "options": {},
+        "authentication": "serviceAccount"
+      },
+      "credentials": {
+        "googleApi": {
+          "id": "ScSS2KxGQULuPtdy",
+          "name": "Google Sheets- test"
+        }
+      },
+      "typeVersion": 4.6
+    },
+    {
+      "id": "format-data",
+      "name": "Format Report Data",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        100,
+        460
+      ],
+      "parameters": {
+        "jsCode": "// Merge all sales data\nconst sales = $('Load All Sales Data').all();\nconst tables = $('Load Table Orders').all();\n\nconst today = new Date().toISOString().split('T')[0];\nconst todaySales = sales.filter(item => item.json.timestamp?.startsWith(today));\nconst todayTables = tables.filter(item => item.json.timestamp?.startsWith(today));\n\nconst totalSales = todaySales.reduce((sum, item) => sum + (item.json.total || 0), 0);\nconst totalTables = todayTables.reduce((sum, item) => sum + (item.json.total || 0), 0);\n\nconst reportData = {\n  date: today,\n  totalSales: totalSales,\n  totalTables: totalTables,\n  grandTotal: totalSales + totalTables,\n  ordersCount: todaySales.length + todayTables.length,\n  avgTicket: (totalSales + totalTables) / (todaySales.length + todayTables.length),\n  rawData: { sales: todaySales, tables: todayTables }\n};\n\nreturn [{ json: reportData }];"
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "gemini-analyze",
+      "name": "Gemini Financial Analysis",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "position": [
+        320,
+        460
+      ],
+      "parameters": {
+        "text": "={{ $json }}",
+        "options": {
+          "systemMessage": "You are a restaurant financial analyst. Analyze daily sales data.\n\nGenerate executive summary with:\n1. Key metrics (total sales, avg ticket, orders)\n2. Top 3 dishes sold\n3. Best performing hour\n4. Trends vs yesterday\n5. Actionable insights\n\nOutput ONLY valid JSON:\n{\n  \"executiveSummary\": \"...\",\n  \"keyMetrics\": {...},\n  \"topDishes\": [...],\n  \"bestHour\": \"...\",\n  \"trends\": \"...\",\n  \"recommendations\": \"...\"\n}"
+        },
+        "promptType": "define"
+      },
+      "typeVersion": 1.9
+    },
+    {
+      "id": "gemini-model",
+      "name": "Gemini 2.5 Pro",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "position": [
+        392,
+        680
+      ],
+      "parameters": {
+        "modelName": "models/gemini-2.5-pro"
+      },
+      "credentials": {
+        "googlePalmApi": {
+          "id": "RvSkIBjP48ORJKhU",
+          "name": "Google Gemini(PaLM) Api account - test"
+        }
+      },
+      "typeVersion": 1
+    },
+    {
+      "id": "gemini-think",
+      "name": "AI Think Tool",
+      "type": "@n8n/n8n-nodes-langchain.toolThink",
+      "position": [
+        540,
+        680
+      ],
+      "typeVersion": 1
+    },
+    {
+      "id": "parse-analysis",
+      "name": "Parse Analysis JSON",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        696,
+        460
+      ],
+      "parameters": {
+        "jsCode": "const aiText = $input.first().json.output;\nconst jsonString = aiText.replace(/``````/i, '').trim();\nconst analysis = JSON.parse(jsonString);\nreturn [{ json: { ...analysis, rawData: $input.first().json.rawData } }];"
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "save-dashboard",
+      "name": "Update Dashboard Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "position": [
+        916,
+        460
+      ],
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "1QZXX_gjNTTZ0vqPozNysjASQS3UcgwwWVpYvN7r-T_I"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": "Financial Dashboard"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData"
+        },
+        "options": {},
+        "authentication": "serviceAccount"
+      },
+      "credentials": {
+        "googleApi": {
+          "id": "ScSS2KxGQULuPtdy",
+          "name": "Google Sheets- test"
+        }
+      },
+      "typeVersion": 4.6
+    },
+    {
+      "id": "email-report",
+      "name": "Email Daily Report",
+      "type": "n8n-nodes-base.gmail",
+      "position": [
+        1136,
+        460
+      ],
+      "parameters": {
+        "sendTo": "manager@restaurant.com",
+        "subject": " Daily Financial Report - {{ $json.date }}",
+        "message": "=🚀 *DIARIO FINANCIERO {{ $json.date }}*\n\n*VENTAS TOTALES:* ${{ $json.keyMetrics.grandTotal }}\n*ÓRDENES:* {{ $json.keyMetrics.ordersCount }}\n*TICKET PROMEDIO:* ${{ $json.keyMetrics.avgTicket }}\n\n{{ $json.executiveSummary }}\n\n*Top 3 Platos:*\n{{ $json.topDishes.join('\\n') }}\n\n💡 *Recomendaciones:*\n{{ $json.recommendations }}\n\n*Ver Dashboard:* https://docs.google.com/spreadsheets/d/1QZXX_gjNTTZ0vqPozNysjASQS3UcgwwWVpYvN7r-T_I",
+        "options": {}
+      },
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "PcTqvGU9uCunfltE",
+          "name": "Gmail account - test"
+        }
+      },
+      "typeVersion": 2.1
+    }
+  ],
+  "active": false,
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "financial-reports-v1",
+  "connections": {
+    "Gemini 2.5 Pro": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Gemini Financial Analysis",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Think Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "Gemini Financial Analysis",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daily Report Trigger": {
+      "main": [
+        [
+          {
+            "node": "Load All Sales Data",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Load Table Orders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load All Sales Data": {
+      "main": [
+        [
+          {
+            "node": "Format Report Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Table Orders": {
+      "main": [
+        [
+          {
+            "node": "Format Report Data",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Format Report Data": {
+      "main": [
+        [
+          {
+            "node": "Gemini Financial Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Financial Analysis": {
+      "main": [
+        [
+          {
+            "node": "Parse Analysis JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Analysis JSON": {
+      "main": [
+        [
+          {
+            "node": "Update Dashboard Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Dashboard Sheet": {
+      "main": [
+        [
+          {
+            "node": "Email Daily Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

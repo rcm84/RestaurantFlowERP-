@@ -1,0 +1,320 @@
+{
+  "id": "TablePOS-v1",
+  "meta": {
+    "instanceId": "restaurant-erp-table-pos",
+    "templateCredsSetupCompleted": true
+  },
+  "name": "Table Management POS (Webhook + Evolution API)",
+  "tags": [
+    "restaurant",
+    "pos",
+    "tables",
+    "kitchen"
+  ],
+  "nodes": [
+    {
+      "id": "webhook-trigger",
+      "name": "Table Order Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "position": [
+        -340,
+        460
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "table-order",
+        "options": {}
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "gemini-parser",
+      "name": "Gemini Parse & Validate Order",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "position": [
+        -120,
+        460
+      ],
+      "parameters": {
+        "text": "={{ $json }}",
+        "options": {
+          "systemMessage": "You are a restaurant POS assistant. Parse table orders.\n\nInput format:\n{\n  \"mesa\": \"5\",\n  \"mesero\": \"Juan\",\n  \"items\": \"2 pizzas margherita, 1 agua\",\n  \"notas\": \"sin piña\"\n}\n\nExtract and validate:\n1. mesa (number)\n2. mesero (name)\n3. items → array [{name: 'pizza margherita', qty: 2, price: 12.5}]\n4. total (calculate)\n5. notas\n\nOutput ONLY valid JSON:\n{\n  \"mesa\": 5,\n  \"mesero\": \"Juan\",\n  \"items\": [...],\n  \"total\": 35.5,\n  \"notas\": \"sin piña\",\n  \"timestamp\": \"2025-12-08T15:23:00Z\",\n  \"estado\": \"Pendiente\"\n}\n\nUse think tool if needed."
+        },
+        "promptType": "define"
+      },
+      "typeVersion": 1.9
+    },
+    {
+      "id": "gemini-model",
+      "name": "Gemini 2.5 Pro",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "position": [
+        -48,
+        680
+      ],
+      "parameters": {
+        "modelName": "models/gemini-2.5-pro"
+      },
+      "credentials": {
+        "googlePalmApi": {
+          "id": "RvSkIBjP48ORJKhU",
+          "name": "Google Gemini(PaLM) Api account - test"
+        }
+      },
+      "typeVersion": 1
+    },
+    {
+      "id": "gemini-think",
+      "name": "AI Think Tool",
+      "type": "@n8n/n8n-nodes-langchain.toolThink",
+      "position": [
+        100,
+        680
+      ],
+      "typeVersion": 1
+    },
+    {
+      "id": "parse-json",
+      "name": "Parse Gemini JSON",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        320,
+        460
+      ],
+      "parameters": {
+        "jsCode": "// Extract clean JSON from Gemini response\nconst aiText = $input.first().json.output;\nconst jsonString = aiText.replace(/``````/i, '').trim();\nconst order = JSON.parse(jsonString);\n\nreturn [{ json: order }];"
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "save-table",
+      "name": "Save Active Table",
+      "type": "n8n-nodes-base.googleSheets",
+      "position": [
+        540,
+        460
+      ],
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "1QZXX_gjNTTZ0vqPozNysjASQS3UcgwwWVpYvN7r-T_I"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": "Restaurant Tables"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData"
+        },
+        "options": {},
+        "authentication": "serviceAccount"
+      },
+      "credentials": {
+        "googleApi": {
+          "id": "ScSS2KxGQULuPtdy",
+          "name": "Google Sheets- test"
+        }
+      },
+      "typeVersion": 4.6
+    },
+    {
+      "id": "kitchen-order",
+      "name": "Send Kitchen Order",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        760,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://your-evolution-api.com/message/sendText/YOUR_KITCHEN_GROUP_ID",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "apikey",
+              "value": "YOUR_EVOLUTION_API_KEY"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "body",
+              "value": "=*NUEVA COMANDA* \n\n*Mesa {{ $json.mesa }}*\n👨‍🍳 *Mesero:* {{ $json.mesero }}\n\n📋 *PEDIDO:*\n{{ $json.items.map(item => `${item.qty}x ${item.name} $${item.price}`).join('\n') }}\n💰 *TOTAL:* ${{ $json.total }}\n\n📝 *Notas:* {{ $json.notas || 'Ninguna' }}\n⏰ {{ $json.timestamp }}\n\n👉 *Responder 'MESA{{ $json.mesa }} LISTA' cuando esté listo*"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "typeVersion": 4.2
+    },
+    {
+      "id": "waiter-confirm",
+      "name": "Confirm to Waiter",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        760,
+        620
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://your-evolution-api.com/message/sendText/{{ $json.mesero_numero }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "apikey",
+              "value": "YOUR_EVOLUTION_API_KEY"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "body",
+              "value": "= *Pedido Mesa {{ $json.mesa }} recibido!*\n\nSe envió a cocina. Te avisaremos cuando esté listo.\n\n*Total:* ${{ $json.total }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "typeVersion": 4.2
+    },
+    {
+      "id": "update-sales",
+      "name": "Update Daily Sales",
+      "type": "n8n-nodes-base.googleSheets",
+      "position": [
+        980,
+        460
+      ],
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "1QZXX_gjNTTZ0vqPozNysjASQS3UcgwwWVpYvN7r-T_I"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": "Daily Sales"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData"
+        },
+        "options": {},
+        "authentication": "serviceAccount"
+      },
+      "credentials": {
+        "googleApi": {
+          "id": "ScSS2KxGQULuPtdy",
+          "name": "Google Sheets- test"
+        }
+      },
+      "typeVersion": 4.6
+    }
+  ],
+  "active": false,
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "table-pos-v1",
+  "connections": {
+    "Gemini 2.5 Pro": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Gemini Parse & Validate Order",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Think Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "Gemini Parse & Validate Order",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Table Order Webhook": {
+      "main": [
+        [
+          {
+            "node": "Gemini Parse & Validate Order",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Parse & Validate Order": {
+      "main": [
+        [
+          {
+            "node": "Parse Gemini JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Gemini JSON": {
+      "main": [
+        [
+          {
+            "node": "Save Active Table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Active Table": {
+      "main": [
+        [
+          {
+            "node": "Send Kitchen Order",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Confirm to Waiter",
+            "type": "main",
+            "index": 1
+          },
+          {
+            "node": "Update Daily Sales",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    }
+  }
+}

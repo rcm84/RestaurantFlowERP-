@@ -1,0 +1,235 @@
+{
+  "id": "WhatsAppAgent-Gemini-v1",
+  "meta": {
+    "instanceId": "whatsapp-agent-gemini",
+    "templateCredsSetupCompleted": true
+  },
+  "name": "WhatsApp AI Agent Restaurant (Gemini + Evolution)",
+  "tags": [
+    "restaurant",
+    "whatsapp",
+    "delivery",
+    "gemini"
+  ],
+  "nodes": [
+    {
+      "id": "evolution-webhook",
+      "name": "Evolution API Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "position": [
+        -340,
+        460
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "whatsapp-agent",
+        "options": {}
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "gemini-agent",
+      "name": "Gemini Restaurant Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "position": [
+        -120,
+        460
+      ],
+      "parameters": {
+        "text": "={{ $json.message }}",
+        "options": {
+          "systemMessage": "You are [RESTAURANT NAME] WhatsApp assistant. Guide delivery orders:\n1. Order type (delivery/pickup)\n2. Menu selection\n3. Items + quantities\n4. Address/name/phone\n5. Payment\n\nFriendly, professional. Use `send_menu` trigger for menu.\n\nOutput JSON: {response: '...', action: 'confirm/send_menu/etc', order: {...}}"
+        },
+        "promptType": "define"
+      },
+      "typeVersion": 1.9
+    },
+    {
+      "id": "gemini-model",
+      "name": "Gemini 2.5 Pro",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "position": [
+        -48,
+        680
+      ],
+      "parameters": {
+        "modelName": "models/gemini-2.5-pro"
+      },
+      "credentials": {
+        "googlePalmApi": {
+          "id": "RvSkIBjP48ORJKhU",
+          "name": "Google Gemini(PaLM) Api account - test"
+        }
+      },
+      "typeVersion": 1
+    },
+    {
+      "id": "gemini-think",
+      "name": "AI Think Tool",
+      "type": "@n8n/n8n-nodes-langchain.toolThink",
+      "position": [
+        100,
+        680
+      ],
+      "typeVersion": 1
+    },
+    {
+      "id": "parse-response",
+      "name": "Parse Agent Response",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        320,
+        460
+      ],
+      "parameters": {
+        "jsCode": "const aiText = $input.first().json.output; const jsonString = aiText.replace(/``````/i, '').trim(); const response = JSON.parse(jsonString); return [{ json: response }];"
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "save-conversation",
+      "name": "Log Conversation",
+      "type": "n8n-nodes-base.googleSheets",
+      "position": [
+        540,
+        460
+      ],
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "1QZXX_gjNTTZ0vqPozNysjASQS3UcgwwWVpYvN7r-T_I"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": "WhatsApp Conversations"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData"
+        },
+        "options": {},
+        "authentication": "serviceAccount"
+      },
+      "credentials": {
+        "googleApi": {
+          "id": "ScSS2KxGQULuPtdy",
+          "name": "Google Sheets- test"
+        }
+      },
+      "typeVersion": 4.6
+    },
+    {
+      "id": "evolution-reply",
+      "name": "Reply via Evolution API",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        760,
+        460
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://your-evolution-api.com/message/sendText/{{ $json.from }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "YOUR_EVOLUTION_API_KEY"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "body",
+              "value": "={{ $json.response }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "typeVersion": 4.2
+    }
+  ],
+  "active": false,
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "whatsapp-agent-gemini-v1",
+  "connections": {
+    "Gemini 2.5 Pro": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Gemini Restaurant Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Think Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "Gemini Restaurant Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evolution API Webhook": {
+      "main": [
+        [
+          {
+            "node": "Gemini Restaurant Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Restaurant Agent": {
+      "main": [
+        [
+          {
+            "node": "Parse Agent Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Agent Response": {
+      "main": [
+        [
+          {
+            "node": "Log Conversation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Conversation": {
+      "main": [
+        [
+          {
+            "node": "Reply via Evolution API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

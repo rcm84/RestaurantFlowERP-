@@ -1,0 +1,278 @@
+{
+  "id": "MenuNotifier-Gemini-v1",
+  "meta": {
+    "instanceId": "menu-notifier-gemini",
+    "templateCredsSetupCompleted": true
+  },
+  "name": "Menu Update Notifier (Gemini + Evolution API)",
+  "tags": [
+    "restaurant",
+    "menu",
+    "notifications"
+  ],
+  "nodes": [
+    {
+      "id": "schedule-trigger",
+      "name": "Hourly Menu Check",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [
+        -340,
+        460
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "triggerAtHour": 12
+            }
+          ]
+        }
+      },
+      "typeVersion": 1.2
+    },
+    {
+      "id": "load-menu",
+      "name": "Load Current Menu",
+      "type": "n8n-nodes-base.googleSheets",
+      "position": [
+        -120,
+        460
+      ],
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "1QZXX_gjNTTZ0vqPozNysjASQS3UcgwwWVpYvN7r-T_I"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": "Special Menu"
+        },
+        "options": {},
+        "authentication": "serviceAccount"
+      },
+      "credentials": {
+        "googleApi": {
+          "id": "ScSS2KxGQULuPtdy",
+          "name": "Google Sheets- test"
+        }
+      },
+      "typeVersion": 4.6
+    },
+    {
+      "id": "gemini-changes",
+      "name": "Gemini Detect Changes",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "position": [
+        100,
+        460
+      ],
+      "parameters": {
+        "text": "={{ $json }}",
+        "options": {
+          "systemMessage": "Analyze menu changes from Google Sheets data. Compare with previous state. Output JSON:\n{\n  \"newItems\": [...],\n  \"updatedItems\": [...],\n  \"removedItems\": [...],\n  \"hasChanges\": true,\n  \"summary\": \"2 new dishes added, 1 price changed\"\n}"
+        },
+        "promptType": "define"
+      },
+      "typeVersion": 1.9
+    },
+    {
+      "id": "gemini-model",
+      "name": "Gemini 2.5 Pro",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "position": [
+        172,
+        680
+      ],
+      "parameters": {
+        "modelName": "models/gemini-2.5-pro"
+      },
+      "credentials": {
+        "googlePalmApi": {
+          "id": "RvSkIBjP48ORJKhU",
+          "name": "Google Gemini(PaLM) Api account - test"
+        }
+      },
+      "typeVersion": 1
+    },
+    {
+      "id": "gemini-think",
+      "name": "AI Think Tool",
+      "type": "@n8n/n8n-nodes-langchain.toolThink",
+      "position": [
+        320,
+        680
+      ],
+      "typeVersion": 1
+    },
+    {
+      "id": "parse-changes",
+      "name": "Parse Changes JSON",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        540,
+        460
+      ],
+      "parameters": {
+        "jsCode": "const aiText = $input.first().json.output; const jsonString = aiText.replace(/``````/i, '').trim(); const changes = JSON.parse(jsonString); return [{ json: changes }];"
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "load-customers",
+      "name": "Load Customers",
+      "type": "n8n-nodes-base.googleSheets",
+      "position": [
+        760,
+        460
+      ],
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "1QZXX_gjNTTZ0vqPozNysjASQS3UcgwwWVpYvN7r-T_I"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": "Customers"
+        },
+        "options": {},
+        "authentication": "serviceAccount"
+      },
+      "credentials": {
+        "googleApi": {
+          "id": "ScSS2KxGQULuPtdy",
+          "name": "Google Sheets- test"
+        }
+      },
+      "typeVersion": 4.6
+    },
+    {
+      "id": "send-notifications",
+      "name": "Send Evolution Notifications",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        980,
+        460
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://your-evolution-api.com/message/sendText/{{ $json.phone }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "YOUR_EVOLUTION_API_KEY"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "body",
+              "value": "=*MENÚ ACTUALIZADO!* {{ $json.summary }} Check it out! "
+            }
+          ]
+        },
+        "options": {}
+      },
+      "typeVersion": 4.2
+    }
+  ],
+  "active": false,
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "menu-notifier-gemini-v1",
+  "connections": {
+    "Gemini 2.5 Pro": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Gemini Detect Changes",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Think Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "Gemini Detect Changes",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hourly Menu Check": {
+      "main": [
+        [
+          {
+            "node": "Load Current Menu",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Current Menu": {
+      "main": [
+        [
+          {
+            "node": "Gemini Detect Changes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Detect Changes": {
+      "main": [
+        [
+          {
+            "node": "Parse Changes JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Changes JSON": {
+      "main": [
+        [
+          {
+            "node": "Load Customers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Customers": {
+      "main": [
+        [
+          {
+            "node": "Send Evolution Notifications",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
